@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.agent.base import BaseAgent
+from app.logger import get_agent_logger
 
 
 class BaseFlow(BaseModel, ABC):
@@ -12,6 +13,7 @@ class BaseFlow(BaseModel, ABC):
     agents: Dict[str, BaseAgent]
     tools: Optional[List] = None
     primary_agent_key: Optional[str] = None
+    agent_loggers: Dict[str, object] = Field(default_factory=dict)
 
     class Config:
         arbitrary_types_allowed = True
@@ -39,6 +41,11 @@ class BaseFlow(BaseModel, ABC):
         # Initialize using BaseModel's init
         super().__init__(**data)
 
+        # Create loggers for each agent
+        self.agent_loggers = {
+            name: get_agent_logger(name) for name in self.agents.keys()
+        }
+
     @property
     def primary_agent(self) -> Optional[BaseAgent]:
         """Get the primary agent for the flow"""
@@ -51,7 +58,9 @@ class BaseFlow(BaseModel, ABC):
     def add_agent(self, key: str, agent: BaseAgent) -> None:
         """Add a new agent to the flow"""
         self.agents[key] = agent
+        self.agent_loggers[key] = get_agent_logger(key)
 
     @abstractmethod
     async def execute(self, input_text: str) -> str:
         """Execute the flow with given input"""
+        pass

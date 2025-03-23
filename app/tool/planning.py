@@ -4,7 +4,6 @@ from typing import Dict, List, Literal, Optional
 from app.exceptions import ToolError
 from app.tool.base import BaseTool, ToolResult
 
-
 _PLANNING_TOOL_DESCRIPTION = """
 A planning tool that allows the agent to create and manage plans for solving complex tasks.
 The tool provides functionality for creating plans, updating plan steps, and tracking progress.
@@ -97,25 +96,58 @@ class PlanningTool(BaseTool):
         - step_status: Status to set for a step (used with mark_step command)
         - step_notes: Additional notes for a step (used with mark_step command)
         """
+        try:
+            # 验证必需参数
+            if command == "create" and not plan_id:
+                raise ToolError("Parameter `plan_id` is required for command: create")
+            if command == "mark_step" and step_index is None:
+                raise ToolError(
+                    "Parameter `step_index` is required for command: mark_step"
+                )
+            if command == "mark_step" and not step_status:
+                raise ToolError(
+                    "Parameter `step_status` is required for command: mark_step"
+                )
+            if command in ["update", "set_active", "delete"] and not plan_id:
+                raise ToolError(
+                    f"Parameter `plan_id` is required for command: {command}"
+                )
 
-        if command == "create":
-            return self._create_plan(plan_id, title, steps)
-        elif command == "update":
-            return self._update_plan(plan_id, title, steps)
-        elif command == "list":
-            return self._list_plans()
-        elif command == "get":
-            return self._get_plan(plan_id)
-        elif command == "set_active":
-            return self._set_active_plan(plan_id)
-        elif command == "mark_step":
-            return self._mark_step(plan_id, step_index, step_status, step_notes)
-        elif command == "delete":
-            return self._delete_plan(plan_id)
-        else:
-            raise ToolError(
-                f"Unrecognized command: {command}. Allowed commands are: create, update, list, get, set_active, mark_step, delete"
-            )
+            # 验证参数类型
+            if steps and not isinstance(steps, list):
+                raise ToolError("Parameter `steps` must be a list")
+            if step_index is not None and not isinstance(step_index, int):
+                raise ToolError("Parameter `step_index` must be an integer")
+            if step_status and step_status not in [
+                "not_started",
+                "in_progress",
+                "completed",
+                "blocked",
+            ]:
+                raise ToolError(
+                    "Parameter `step_status` must be one of: not_started, in_progress, completed, blocked"
+                )
+
+            if command == "create":
+                return self._create_plan(plan_id, title, steps)
+            elif command == "update":
+                return self._update_plan(plan_id, title, steps)
+            elif command == "list":
+                return self._list_plans()
+            elif command == "get":
+                return self._get_plan(plan_id)
+            elif command == "set_active":
+                return self._set_active_plan(plan_id)
+            elif command == "mark_step":
+                return self._mark_step(plan_id, step_index, step_status, step_notes)
+            elif command == "delete":
+                return self._delete_plan(plan_id)
+            else:
+                raise ToolError(
+                    f"Unrecognized command: {command}. Allowed commands are: create, update, list, get, set_active, mark_step, delete"
+                )
+        except Exception as e:
+            raise ToolError(f"Error executing planning command: {str(e)}")
 
     def _create_plan(
         self, plan_id: Optional[str], title: Optional[str], steps: Optional[List[str]]

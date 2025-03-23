@@ -1,3 +1,5 @@
+import os
+
 from pydantic import Field
 
 from app.agent.browser import BrowserAgent
@@ -8,6 +10,7 @@ from app.tool import Terminate, ToolCollection
 from app.tool.browser_use_tool import BrowserUseTool
 from app.tool.python_execute import PythonExecute
 from app.tool.str_replace_editor import StrReplaceEditor
+from app.utils import ensure_task_dir, get_timestamp_dir
 
 
 class Manus(BrowserAgent):
@@ -30,12 +33,29 @@ class Manus(BrowserAgent):
     max_observe: int = 10000
     max_steps: int = 20
 
+    # 添加任务目录属性
+    task_dir: str = Field(default_factory=get_timestamp_dir)
+    task_path: str = Field(
+        default_factory=lambda: ensure_task_dir(
+            os.path.join(config.workspace_root, get_timestamp_dir())
+        )
+    )
+
     # Add general-purpose tools to the tool collection
     available_tools: ToolCollection = Field(
         default_factory=lambda: ToolCollection(
             PythonExecute(), BrowserUseTool(), StrReplaceEditor(), Terminate()
         )
     )
+
+    def __init__(self, **data):
+        super().__init__(**data)
+        # 确保任务目录存在
+        self.task_path = ensure_task_dir(
+            os.path.join(config.workspace_root, self.task_dir)
+        )
+        # 更新系统提示词中的目录信息
+        self.system_prompt = SYSTEM_PROMPT.format(directory=self.task_path)
 
     async def think(self) -> bool:
         """Process current state and decide next actions with appropriate context."""

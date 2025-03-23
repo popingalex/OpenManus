@@ -10,7 +10,6 @@ from app.prompt.toolcall import NEXT_STEP_PROMPT, SYSTEM_PROMPT
 from app.schema import TOOL_CHOICE_TYPE, AgentState, Message, ToolCall, ToolChoice
 from app.tool import CreateChatCompletion, Terminate, ToolCollection
 
-
 TOOL_CALL_REQUIRED = "Tool calls required but none provided"
 
 
@@ -172,22 +171,38 @@ class ToolCallAgent(ReActAgent):
             return f"Error: Unknown tool '{name}'"
 
         try:
-            # Parse arguments
-            args = json.loads(command.function.arguments or "{}")
+            # 解析参数
+            args = {}
+            if command.function.arguments:
+                try:
+                    args = json.loads(command.function.arguments)
+                except json.JSONDecodeError:
+                    # 如果 JSON 解析失败，尝试清理和修复 JSON 字符串
+                    cleaned_args = command.function.arguments.strip()
+                    if cleaned_args.startswith('"') and cleaned_args.endswith('"'):
+                        # 移除多余的引号
+                        cleaned_args = cleaned_args[1:-1]
+                    try:
+                        args = json.loads(cleaned_args)
+                    except json.JSONDecodeError:
+                        raise ValueError(
+                            f"Invalid JSON format: {command.function.arguments}"
+                        )
 
-            # Execute the tool
+            # 验证参数类型
+            if not isinstance(args, dict):
+                raise ValueError(f"Arguments must be a dictionary, got {type(args)}")
+
+            # 执行工具
             logger.info(f"🔧 Activating tool: '{name}'...")
             result = await self.available_tools.execute(name=name, tool_input=args)
 
-            # Handle special tools
+            # 处理特殊工具
             await self._handle_special_tool(name=name, result=result)
 
-            # Check if result is a ToolResult with base64_image
+            # 检查结果是否包含 base64_image
             if hasattr(result, "base64_image") and result.base64_image:
-                # Store the base64_image for later use in tool_message
                 self._current_base64_image = result.base64_image
-
-                # Format result for display
                 observation = (
                     f"Observed output of cmd `{name}` executed:\n{str(result)}"
                     if result
@@ -195,7 +210,7 @@ class ToolCallAgent(ReActAgent):
                 )
                 return observation
 
-            # Format result for display (standard case)
+            # 格式化标准结果
             observation = (
                 f"Observed output of cmd `{name}` executed:\n{str(result)}"
                 if result
@@ -203,11 +218,18 @@ class ToolCallAgent(ReActAgent):
             )
 
             return observation
-        except json.JSONDecodeError:
-            error_msg = f"Error parsing arguments for {name}: Invalid JSON format"
+
+        except json.JSONDecodeError as e:
+            error_msg = (
+                f"Error parsing arguments for {name}: Invalid JSON format - {str(e)}"
+            )
             logger.error(
                 f"📝 Oops! The arguments for '{name}' don't make sense - invalid JSON, arguments:{command.function.arguments}"
             )
+            return f"Error: {error_msg}"
+        except ValueError as e:
+            error_msg = f"Invalid arguments for {name}: {str(e)}"
+            logger.error(f"📝 Invalid arguments for '{name}': {str(e)}")
             return f"Error: {error_msg}"
         except Exception as e:
             error_msg = f"⚠️ Tool '{name}' encountered a problem: {str(e)}"
