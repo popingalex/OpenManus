@@ -178,15 +178,8 @@ class PlanningFlow(BaseFlow):
             step_text = step_info.get("text", "")
             step_type = step_info.get("type", "").lower()
 
-            # 根据步骤类型创建不同的提示
-            if step_type == "analyze":
-                step_prompt = f"分析需求：{step_text}"
-            elif step_type == "execute":
-                step_prompt = f"执行任务：{step_text}"
-            elif step_type == "verify":
-                step_prompt = f"验证结果：{step_text}"
-            else:
-                step_prompt = f"执行步骤：{step_text}"
+            # 使用更简短的提示
+            step_prompt = f"执行：{step_text}"
 
             # 使用 run 方法执行步骤
             try:
@@ -216,23 +209,40 @@ class PlanningFlow(BaseFlow):
             except Exception as e:
                 if "TokenLimitExceeded" in str(e):
                     logger.warning(
-                        "⚠️ Token limit exceeded, retrying with simplified context"
+                        "⚠️ Token limit exceeded, retrying with minimal context"
                     )
-                    # 使用更简化的提示重试
-                    simplified_prompt = f"执行：{step_text}"
+                    # 使用最小化的提示重试
+                    minimal_prompt = step_text
                     try:
-                        step_result = await executor.run(simplified_prompt)
+                        step_result = await executor.run(minimal_prompt)
                     except Exception as e2:
-                        logger.error(f"❌ Error in simplified context: {str(e2)}")
+                        logger.error(f"❌ Error in minimal context: {str(e2)}")
                         raise
                 else:
                     raise
 
             # 标记步骤为已完成
             try:
-                await self._mark_step_completed()
+                mark_step_args = {
+                    "command": "mark_step",
+                    "plan_id": self.active_plan_id,
+                    "step_index": self.current_step_index,
+                    "step_status": PlanStepStatus.COMPLETED.value,
+                    "step_notes": f"完成步骤：{step_text}",
+                }
+                await self.planning_tool.execute(**mark_step_args)
             except Exception as e:
                 logger.warning(f"⚠️ Failed to mark step as completed: {e}")
+                # 直接更新步骤状态
+                if self.active_plan_id in self.planning_tool.plans:
+                    plan_data = self.planning_tool.plans[self.active_plan_id]
+                    step_statuses = plan_data.get("step_statuses", [])
+                    while len(step_statuses) <= self.current_step_index:
+                        step_statuses.append(PlanStepStatus.NOT_STARTED.value)
+                    step_statuses[self.current_step_index] = (
+                        PlanStepStatus.COMPLETED.value
+                    )
+                    plan_data["step_statuses"] = step_statuses
 
             # 记录已执行的步骤
             self._executed_steps.add(step_key)
@@ -666,12 +676,14 @@ class PlanningFlow(BaseFlow):
 
                     # 标记当前步骤为进行中
                     try:
-                        await self.planning_tool.execute(
-                            command="mark_step",
-                            plan_id=self.active_plan_id,
-                            step_index=i,
-                            step_status=PlanStepStatus.IN_PROGRESS.value,
-                        )
+                        mark_step_args = {
+                            "command": "mark_step",
+                            "plan_id": self.active_plan_id,
+                            "step_index": i,
+                            "step_status": PlanStepStatus.IN_PROGRESS.value,
+                            "step_notes": f"开始执行步骤：{step}",
+                        }
+                        await self.planning_tool.execute(**mark_step_args)
                     except Exception as e:
                         logger.warning(f"Error marking step as in_progress: {e}")
                         # 直接更新步骤状态
